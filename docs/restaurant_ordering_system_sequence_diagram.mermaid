@@ -1,0 +1,162 @@
+sequenceDiagram
+    participant C as Customer
+    participant UI as Frontend App
+    participant AG as API Gateway
+    participant MS as Menu Service
+    participant OS as Order Service
+    participant PS as Pricing Service
+    participant IS as Inventory Service
+    participant PayS as Payment Service
+    participant NS as Notification Service
+    participant Cache as Cache Service
+    participant DB as Database
+
+    %% Customer Authentication & Menu Loading
+    Note over C,DB: 1. Customer Access & Menu Loading
+    C->>UI: Access restaurant app/QR code
+    UI->>AG: GET /auth/session
+    AG->>UI: Return session token
+    
+    UI->>AG: GET /restaurants/{restaurantId}/menu
+    AG->>MS: getMenu(restaurantId)
+    MS->>Cache: get("menu:restaurantId")
+    
+    alt Cache Hit
+        Cache-->>MS: Return cached menu
+    else Cache Miss
+        MS->>DB: SELECT menu, categories, items
+        DB-->>MS: Return menu data
+        MS->>Cache: set("menu:restaurantId", menuData, 300)
+    end
+    
+    MS-->>AG: Return menu with availability
+    AG-->>UI: Return formatted menu
+    UI-->>C: Display menu with filters
+
+    %% Item Selection & Customization
+    Note over C,DB: 2. Item Selection & Customization
+    C->>UI: Select menu item
+    UI->>AG: GET /menu/items/{itemId}/customizations
+    AG->>MS: getItemCustomizations(itemId)
+    MS->>DB: SELECT customization groups and options
+    DB-->>MS: Return customization data
+    MS-->>AG: Return customizations
+    AG-->>UI: Return customization options
+    UI-->>C: Display customization form
+
+    C->>UI: Configure customizations
+    UI->>AG: POST /pricing/calculate
+    AG->>PS: calculateItemPrice(itemId, customizations)
+    PS->>DB: SELECT pricing rules
+    DB-->>PS: Return pricing data
+    PS->>PS: Apply pricing logic
+    PS-->>AG: Return calculated price
+    AG-->>UI: Return price breakdown
+    UI-->>C: Show updated price
+
+    %% Add to Cart & Inventory Check
+    Note over C,DB: 3. Add to Cart & Inventory Validation
+    C->>UI: Add to cart
+    UI->>AG: POST /orders/cart/items
+    AG->>IS: checkAvailability(itemId, quantity, customizations)
+    IS->>DB: SELECT inventory levels
+    DB-->>IS: Return stock data
+    
+    alt Stock Available
+        IS->>IS: Reserve inventory
+        IS->>DB: UPDATE inventory SET reserved_qty
+        IS-->>AG: Return availability: true
+        AG-->>UI: Item added to cart
+    else Stock Unavailable
+        IS-->>AG: Return availability: false, alternatives
+        AG-->>UI: Show unavailable message + alternatives
+    end
+
+    %% Order Creation & Validation
+    Note over C,DB: 4. Order Processing & Validation
+    C->>UI: Proceed to checkout
+    UI->>AG: POST /orders/create
+    AG->>OS: createOrder(orderData)
+    
+    %% Multi-step validation
+    OS->>IS: validateInventoryAvailability(orderItems)
+    IS->>DB: SELECT current stock levels
+    DB-->>IS: Return stock data
+    IS-->>OS: Return validation result
+    
+    OS->>PS: calculateOrderTotal(orderItems)
+    PS->>DB: SELECT pricing rules, discounts
+    DB-->>PS: Return pricing data
+    PS->>PS: Calculate subtotal, tax, discounts
+    PS-->>OS: Return price breakdown
+    
+    OS->>OS: validateOrder(order)
+    OS->>DB: INSERT order, order_items
+    DB-->>OS: Return order with ID
+    
+    OS-->>AG: Return created order
+    AG-->>UI: Return order confirmation
+    UI-->>C: Show order summary
+
+    %% Payment Processing
+    Note over C,DB: 5. Payment Processing
+    C->>UI: Provide payment details
+    UI->>AG: POST /payments/process
+    AG->>PayS: processPayment(orderID, paymentInfo)
+    
+    PayS->>PayS: validatePaymentMethod(paymentInfo)
+    PayS->>PayS: Call Stripe API
+    
+    alt Payment Success
+        PayS->>DB: INSERT payment record
+        PayS->>OS: updateOrderStatus(orderID, "PAID")
+        OS->>DB: UPDATE order SET status = 'PAID'
+        OS->>IS: confirmInventoryReservation(orderID)
+        IS->>DB: UPDATE inventory SET qty = qty - reserved_qty
+        PayS-->>AG: Return success result
+        AG-->>UI: Payment successful
+        
+        %% Trigger notifications
+        PayS->>NS: sendOrderConfirmation(order)
+        NS->>NS: Send email/SMS confirmation
+        
+    else Payment Failed
+        PayS->>IS: releaseInventoryReservation(orderID)
+        IS->>DB: UPDATE inventory SET reserved_qty = 0
+        PayS-->>AG: Return error result
+        AG-->>UI: Payment failed
+    end
+
+    %% Real-time Order Updates
+    Note over C,DB: 6. Real-time Order Tracking
+    loop Order Status Updates
+        OS->>NS: publishOrderUpdate(orderID, status)
+        NS->>UI: WebSocket: orderStatusUpdate
+        UI-->>C: Show status update
+        
+        alt Order Ready
+            NS->>NS: Send ready notification
+            NS->>UI: WebSocket: orderReady
+            UI-->>C: Order ready alert
+        end
+    end
+
+    %% Inventory Management Background Process
+    Note over IS,DB: 7. Background Inventory Management
+    loop Every 30 seconds
+        IS->>DB: SELECT items WHERE qty < threshold
+        DB-->>IS: Return low stock items
+        IS->>NS: sendLowStockAlert(items)
+        IS->>Cache: invalidate("menu:*")
+    end
+
+    %% Error Handling & Rollback
+    Note over OS,DB: 8. Error Handling Example
+    alt Order Processing Error
+        OS->>IS: rollbackInventoryReservation(orderID)
+        IS->>DB: UPDATE inventory SET reserved_qty = 0
+        OS->>PayS: refundPayment(paymentID)
+        PayS->>PayS: Call Stripe refund API
+        OS->>DB: UPDATE order SET status = 'CANCELLED'
+        OS->>NS: sendOrderCancellation(orderID)
+    end

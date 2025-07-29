@@ -167,6 +167,53 @@ export default function Index() {
           onClose={() => setShowCheckout(false)}
         />
       )}
+
+      {/* Admin Access Panel */}
+      <div className="fixed bottom-4 right-4">
+        <Card className="bg-white/90 backdrop-blur-sm shadow-lg">
+          <CardContent className="p-3">
+            <p className="text-xs text-gray-600 mb-2">Admin Access:</p>
+            <div className="space-y-1">
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full justify-start text-xs"
+                onClick={() => window.open('/login', '_blank')}
+              >
+                <Utensils className="w-3 h-3 mr-1" />
+                Login
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full justify-start text-xs"
+                onClick={() => window.open('/admin', '_blank')}
+              >
+                <QrCode className="w-3 h-3 mr-1" />
+                Admin
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full justify-start text-xs"
+                onClick={() => window.open('/owner', '_blank')}
+              >
+                <Utensils className="w-3 h-3 mr-1" />
+                Owner
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full justify-start text-xs"
+                onClick={() => window.open('/kitchen', '_blank')}
+              >
+                <QrCode className="w-3 h-3 mr-1" />
+                Kitchen
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

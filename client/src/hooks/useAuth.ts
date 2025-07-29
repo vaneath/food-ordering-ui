@@ -1,7 +1,26 @@
 import { useState, useEffect } from 'react';
-import { AuthUser, AuthState } from '../types';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { apiRequest } from '../lib/queryClient';
+import { getAuthToken, setAuthToken, removeAuthToken } from '../lib/authUtils';
+
+interface AuthUser {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+  restaurantId?: string;
+  permissions: string[];
+}
+
+interface AuthState {
+  user: AuthUser | null;
+  isAuthenticated: boolean;
+  loading: boolean;
+  error?: string;
+}
 
 export function useAuth() {
+  const queryClient = useQueryClient();
   const [authState, setAuthState] = useState<AuthState>({
     user: null,
     isAuthenticated: false,
@@ -9,102 +28,127 @@ export function useAuth() {
     error: undefined,
   });
 
+  // Check for existing token and get user data
+  const { data: user, isLoading, error } = useQuery({
+    queryKey: ['/api/auth/me'],
+    enabled: !!getAuthToken(),
+    retry: false,
+    staleTime: 10 * 60 * 1000, // 10 minutes
+  });
+
   useEffect(() => {
-    const storedUser = localStorage.getItem('auth_user');
-    if (storedUser) {
-      try {
-        const user = JSON.parse(storedUser);
-        setAuthState({
-          user,
-          isAuthenticated: true,
-          loading: false,
-        });
-      } catch (error) {
-        localStorage.removeItem('auth_user');
-        setAuthState({
-          user: null,
-          isAuthenticated: false,
-          loading: false,
-        });
-      }
-    } else {
-      setAuthState(prev => ({ ...prev, loading: false }));
-    }
-  }, []);
-
-  const login = async (email: string, password: string) => {
-    setAuthState(prev => ({ ...prev, loading: true, error: undefined }));
-    
-    try {
-      const mockUsers: AuthUser[] = [
-        {
-          id: 'admin-1',
-          email: 'admin@restaurant.com',
-          role: 'super_admin',
-          name: 'System Admin',
-          permissions: ['all'],
-          createdAt: new Date(),
-          lastLogin: new Date(),
-        },
-        {
-          id: 'owner-1',
-          email: 'owner@bistro.com',
-          role: 'restaurant_admin',
-          name: 'Restaurant Owner',
-          restaurantId: 'bistro-digital',
-          permissions: ['restaurant_manage', 'menu_manage', 'orders_view', 'analytics_view'],
-          createdAt: new Date(),
-          lastLogin: new Date(),
-        },
-        {
-          id: 'staff-1',
-          email: 'staff@bistro.com',
-          role: 'staff',
-          name: 'Kitchen Staff',
-          restaurantId: 'bistro-digital',
-          permissions: ['orders_view', 'kitchen_manage'],
-          createdAt: new Date(),
-          lastLogin: new Date(),
-        },
-      ];
-
-      const user = mockUsers.find(u => u.email === email);
-      if (!user || password !== 'password123') {
-        throw new Error('Invalid credentials');
-      }
-
-      user.lastLogin = new Date();
-      
-      localStorage.setItem('auth_user', JSON.stringify(user));
-      setAuthState({
-        user,
-        isAuthenticated: true,
-        loading: false,
-      });
-    } catch (error) {
+    const token = getAuthToken();
+    if (!token) {
       setAuthState({
         user: null,
         isAuthenticated: false,
         loading: false,
-        error: error instanceof Error ? error.message : 'Login failed',
       });
-      throw error;
+    } else if (user && user.user) {
+      setAuthState({
+        user: user.user,
+        isAuthenticated: true,
+        loading: false,
+      });
+    } else if (!isLoading && error) {
+      setAuthState({
+        user: null,
+        isAuthenticated: false,
+        loading: false,
+        error: 'Session expired',
+      });
+      removeAuthToken();
+    } else {
+      setAuthState(prev => ({ ...prev, loading: isLoading }));
     }
+  }, [user, isLoading, error]);
+
+  const loginMutation = useMutation({
+    mutationFn: async ({ email, password }: { email: string; password: string }) => {
+      return apiRequest('/api/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ email, password }),
+      });
+    },
+    onSuccess: (data) => {
+      setAuthToken(data.token);
+      setAuthState({
+        user: data.user,
+        isAuthenticated: true,
+        loading: false,
+      });
+      queryClient.invalidateQueries({ queryKey: ['/api/auth/me'] });
+    },
+    onError: (error: Error) => {
+      setAuthState(prev => ({
+        ...prev,
+        loading: false,
+        error: error.message,
+      }));
+    },
+  });
+
+  const registerMutation = useMutation({
+    mutationFn: async (userData: {
+      email: string;
+      password: string;
+      name: string;
+      role?: string;
+      restaurantId?: string;
+    }) => {
+      return apiRequest('/api/auth/register', {
+        method: 'POST',
+        body: JSON.stringify(userData),
+      });
+    },
+    onSuccess: (data) => {
+      setAuthToken(data.token);
+      setAuthState({
+        user: data.user,
+        isAuthenticated: true,
+        loading: false,
+      });
+      queryClient.invalidateQueries({ queryKey: ['/api/auth/me'] });
+    },
+    onError: (error: Error) => {
+      setAuthState(prev => ({
+        ...prev,
+        loading: false,
+        error: error.message,
+      }));
+    },
+  });
+
+  const login = async (email: string, password: string) => {
+    setAuthState(prev => ({ ...prev, loading: true, error: undefined }));
+    return loginMutation.mutateAsync({ email, password });
+  };
+
+  const register = async (userData: {
+    email: string;
+    password: string;
+    name: string;
+    role?: string;
+    restaurantId?: string;
+  }) => {
+    setAuthState(prev => ({ ...prev, loading: true, error: undefined }));
+    return registerMutation.mutateAsync(userData);
   };
 
   const logout = () => {
-    localStorage.removeItem('auth_user');
+    removeAuthToken();
     setAuthState({
       user: null,
       isAuthenticated: false,
       loading: false,
     });
+    queryClient.clear();
+    window.location.href = '/';
   };
 
   const updateUser = (userData: Partial<AuthUser>) => {
     if (authState.user) {
       const updatedUser = { ...authState.user, ...userData };
-      localStorage.setItem('auth_user', JSON.stringify(updatedUser));
       setAuthState(prev => ({
         ...prev,
         user: updatedUser,
@@ -112,7 +156,14 @@ export function useAuth() {
     }
   };
 
-  return { authState, login, logout, updateUser };
+  return { 
+    authState, 
+    login, 
+    register, 
+    logout, 
+    updateUser,
+    isLoading: authState.loading || loginMutation.isPending || registerMutation.isPending,
+  };
 }
 
 export function usePermissions() {

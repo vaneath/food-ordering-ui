@@ -1,0 +1,35 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+Extend the existing Restaurant Ordering System at /workspace/restaurant_ordering_system/ to include:
+
+1. **Admin Dashboard** with the following capabilities:
+   - Restaurant setup and configuration
+   - Menu management (add/edit/delete items, categories, pricing)
+   - Inventory management with stock levels
+   - Order management and kitchen display
+   - Analytics dashboard with sales reports
+   - Staff management and permissions
+
+2. **Multi-Vendor Support** with the following features:
+   - Restaurant owner can manage multiple restaurant locations
+   - Each restaurant has its own menu, inventory, and settings
+   - Centralized owner dashboard to switch between locations
+   - Location-specific QR codes and ordering interfaces
+   - Consolidated reporting across all locations
+
+3. **Authentication System**:
+   - Admin login for restaurant management
+   - Owner login for multi-location management
+   - Role-based access control (Super Admin, Restaurant Admin, Staff)
+
+Use the existing codebase and extend it with these new features. Maintain compatibility with the current customer ordering interface. Use localStorage to simulate multi-tenant data storage with proper data separation by restaurant/location.
+Create new routes/pages for:
+- /admin - Main admin dashboard
+- /owner - Multi-vendor owner dashboard  
+- /setup - Restaurant setup wizard
+- /kitchen - Kitchen display system
+
+Maintain the existing customer ordering interface at the root level but make it location-aware.

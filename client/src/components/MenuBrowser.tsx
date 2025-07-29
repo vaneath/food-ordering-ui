@@ -130,7 +130,7 @@ export const MenuBrowser: React.FC = () => {
       )}
 
       {/* Category Tabs */}
-      <Tabs value={selectedCategory} onValueChange={handleCategoryChange}>
+      <Tabs value={selectedCategory} onValueChange={(value) => handleCategoryChange(value as MenuCategory | 'all')}>
         <TabsList className="grid w-full grid-cols-5 lg:grid-cols-10">
           <TabsTrigger value="all">All</TabsTrigger>
           {categories.map((category) => (
